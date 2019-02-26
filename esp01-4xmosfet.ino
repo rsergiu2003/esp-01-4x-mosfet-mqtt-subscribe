@@ -22,7 +22,7 @@ const char* ssid = "Sergiu";
 const char* password = "1234567890";
 const char* mqtt_server = "192.168.0.108";
 
-#define TOPIC "control1"
+#define TOPIC "control2"
 
 #undef ULONG_MAX
 #define ULONG_MAX (LONG_MAX * 2UL + 1UL)
@@ -106,14 +106,22 @@ void setup() {
   #endif
   
   pinMode(0, OUTPUT);
-  pinMode(1, OUTPUT);
   pinMode(2, OUTPUT);
+  #ifdef DEBUG
+  #else
+  pinMode(1, OUTPUT);
   pinMode(3, OUTPUT);
+  #endif
+
 
   digitalWrite(0,LOW);
-  digitalWrite(1,LOW);
   digitalWrite(2,LOW);
-  digitalWrite(3,LOW);
+  #ifdef DEBUG
+  #else
+  digitalWrite(1,LOW);
+  digitalWrite(3,LOW);;
+  #endif
+ 
 
   setup_wifi();
   client.setServer(mqtt_server, 1883);
@@ -124,14 +132,32 @@ void loop() {
   if (!client.connected()) {
     reconnect();
   }
+  fakeWatchDog();
   client.loop();
   checkMode2Stop();
+}
+
+//will reboot after 1 hour, to make sure everything is fresh
+void fakeWatchDog() {
+     #ifdef DEBUG
+//  Serial.print("uptime: ");Serial.println(millis()/1000);
+  #endif
+  //one hour
+  if (millis() > 3600*1000) {
+    #ifdef DEBUG
+    Serial.print("Softare reset");
+    #endif
+    ESP.restart();
+  }
 }
 
 byte count0 = 0;
 void checkMode2Stop() {
   for(count0=0;count0<4;count0++) {
     if (millis() > endTimesMode2[count0] ) {
+       #ifdef DEBUG
+//      Serial.print("turn off by timer: ");
+      #endif
       turnOff(count0);
     }
   }
@@ -166,14 +192,14 @@ void setMode(byte pin, byte modeSet, long duration, long interval) {
 
 void turnOn(byte pin) {   
    #ifdef DEBUG
-  Serial.print("enable: ");Serial.println(pin);
+//  Serial.print("enable: ");Serial.println(pin);
   #endif
     digitalWrite(pin,HIGH);
 }
 
 void turnOff(byte pin) { 
-     #ifdef DEBUG
-  Serial.print("disable: ");Serial.println(pin);
+    #ifdef DEBUG
+//  Serial.print("disable: ");Serial.println(pin);
   #endif
     digitalWrite(pin,LOW);
 }
