@@ -1,13 +1,45 @@
+#include <ArduinoJson.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 
+/*
+ * Will accept a JSON in this format (on a mqtt topic)
+ * {"p":1,"m":2, "d":10,"i":100}
+ * p: output port (0-3)
+ * m: mode : 0 - turn off, 1 - turn on, 2 - enable for d seconds
+ * d: number of econds to be enabled dor mode 2
+ * i: how much we have to wait before beeing able to accept a new mode 2 command
+ * 
+ * E.g. enable for 10 seconds, but don't accept any other mode2 command before 100 seconds have passed
+ */
+
+#define MODE_DISABLE 0
+#define MODE_ENABLE 1
+#define MODE_TIMER 2
+
+//change this to your actual wifi settings
 const char* ssid = "Sergiu";
 const char* password = "1234567890";
 const char* mqtt_server = "192.168.0.108";
 
+#define TOPIC "control1"
+
+#undef ULONG_MAX
+#define ULONG_MAX (LONG_MAX * 2UL + 1UL)
+
+//#define DEBUG 1
+
+//time has to be higher than this to accept a MODE_TIMER commnad on a pin (milliseconds)
+unsigned long sinceMode2_pins[4];
+unsigned long endTimesMode2[4];
+
 WiFiClient espClient;
 PubSubClient client(espClient);
 
+// ArduinoJson
+const size_t capacity = JSON_OBJECT_SIZE(4) + 30;
+DynamicJsonBuffer jsonBuffer(capacity);
+//-----
 void setup_wifi() {
 
   delay(10);
@@ -22,22 +54,31 @@ void setup_wifi() {
 }
 
 
+//orking pin
+byte json_p;
+//pin mode
+byte json_m;
+//duration for timer mode
+long json_d;
+//interval for timer mode
+long json_i;
 
 void callback(char* topic, byte* payload, unsigned int length) {
-//  Serial.print("Message arrived [");
-//  Serial.print(topic);
-//  Serial.print("] ");
-  for (int i = 0; i < length; i++) {
-//    Serial.print((char)payload[i]);
-  }
-//  Serial.println();
+  #ifdef DEBUG
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.println("] ");
+  Serial.println((char*)payload);
+  #endif
 
-  // Switch on the LED if an 1 was received as first character
-  if ((char)payload[0] == '1') {
-    turnOn();
-  } else {
-    turnOff();
-  }
+  JsonObject& root = jsonBuffer.parseObject(payload);
+
+  json_p = root["p"];
+  json_m = root["m"];
+  json_d = root["d"];
+  json_i = root["i"];
+
+  setMode(json_p,json_m,json_d,json_i);
 
 }
 
@@ -49,7 +90,7 @@ void reconnect() {
     clientId += String(random(0xffff), HEX);
     // Attempt to connect
     if (client.connect(clientId.c_str())) {
-      client.subscribe("fan1");
+      client.subscribe(TOPIC);
     } else {
      
       // Wait 5 seconds before retrying
@@ -60,7 +101,9 @@ void reconnect() {
 
 void setup() {
   // put your setup code here, to run once:
+  #ifdef DEBUG
   Serial.begin(9600);
+  #endif
   
   pinMode(0, OUTPUT);
   pinMode(1, OUTPUT);
@@ -82,13 +125,56 @@ void loop() {
     reconnect();
   }
   client.loop();
+  checkMode2Stop();
 }
 
-void turnOn() {   
-    digitalWrite(2,HIGH);
+byte count0 = 0;
+void checkMode2Stop() {
+  for(count0=0;count0<4;count0++) {
+    if (millis() > endTimesMode2[count0] ) {
+      turnOff(count0);
+    }
+  }
 }
 
-void turnOff() { 
-    digitalWrite(2,LOW);
+void setMode(byte pin, byte modeSet, long duration, long interval) {
+
+  #ifdef DEBUG
+  Serial.print("pin: ");Serial.println(pin);
+  Serial.print("mode: ");Serial.println(modeSet);
+  Serial.print("duration: ");Serial.println(duration);
+  Serial.print("interval: ");Serial.println(interval);
+  #endif
+  
+   if (modeSet == MODE_DISABLE) {
+      turnOff(pin);
+   }
+
+   if (modeSet == MODE_ENABLE) {
+      turnOn(pin);
+      endTimesMode2[pin] = ULONG_MAX;
+   }
+
+   if (modeSet == MODE_TIMER) {
+      if(millis() > sinceMode2_pins[pin]) {
+          endTimesMode2[pin] = millis() + duration*1000;
+          sinceMode2_pins[pin] = millis() + interval*1000;
+          turnOn(pin);
+      }
+   }
+}
+
+void turnOn(byte pin) {   
+   #ifdef DEBUG
+  Serial.print("enable: ");Serial.println(pin);
+  #endif
+    digitalWrite(pin,HIGH);
+}
+
+void turnOff(byte pin) { 
+     #ifdef DEBUG
+  Serial.print("disable: ");Serial.println(pin);
+  #endif
+    digitalWrite(pin,LOW);
 }
 
